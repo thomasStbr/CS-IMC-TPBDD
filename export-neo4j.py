@@ -24,8 +24,19 @@ BATCH_SIZE = 10000
 
 print("Deleting existing nodes and relationships...")
 graph.run("MATCH ()-[r]->() DELETE r")
+try :
+    graph.run("DROP INDEX film_index")
+except Exception as error:
+    print(f"Error while creating indexes: {error}")
+try :
+    graph.run("DROP INDEX artist_index")
+except Exception as error:
+    print(f"Error while creating indexes: {error}")
 graph.run("MATCH (n:Artist) DETACH DELETE n")
 graph.run("MATCH (n:Film) DETACH DELETE n")
+graph.run("MATCH (n:Names) DETACH DELETE n")
+
+
 
 with pyodbc.connect('DRIVER='+driver+';SERVER=tcp:'+server+';PORT=1433;DATABASE='+database+';UID='+username+';PWD='+ password) as conn:
     cursor = conn.cursor()
@@ -34,7 +45,7 @@ with pyodbc.connect('DRIVER='+driver+';SERVER=tcp:'+server+';PORT=1433;DATABASE=
     exportedCount = 0
     cursor.execute("SELECT COUNT(1) FROM TFilm")
     totalCount = cursor.fetchval()
-    cursor.execute("SELECT idFilm, primaryTitle, startYear , averageRating , runtimeMinutes FROM TFilm")
+    cursor.execute("SELECT idFilm, primaryTitle, startYear  FROM TFilm")
     while True:
         importData = []
         rows = cursor.fetchmany(BATCH_SIZE)
@@ -45,7 +56,7 @@ with pyodbc.connect('DRIVER='+driver+';SERVER=tcp:'+server+';PORT=1433;DATABASE=
         for row in rows:
             # Créer un objet Node avec comme label Film et les propriétés adéquates
             # A COMPLETER
-            n = {"idFilm" : row[0] , "primaryTitle" : row[1] , "startYear"  : row[2] , "averageRating" : row[3] , "runtimeMinutes" : row[4] }
+            n = {"idFilm" : row[0] , "primaryTitle" : row[1] , "startYear"  : row[2]  }
             importData.append(n)
             i += 1
 
@@ -90,7 +101,10 @@ with pyodbc.connect('DRIVER='+driver+';SERVER=tcp:'+server+';PORT=1433;DATABASE=
         print("Indexing Film nodes...")
         graph.run("CREATE INDEX film_index FOR (f:Film) ON (f.idFilm)")
         print("Film nodes indexed successfully.")
-
+    except Exception as error:
+        print(f"Error while creating indexes: {error}")
+    
+    try:
         print("Indexing Artist nodes...")
         graph.run("CREATE INDEX artist_index FOR (a:Artist) ON (a.idArtist)")
         print("Artist nodes indexed successfully.")
@@ -104,23 +118,25 @@ with pyodbc.connect('DRIVER='+driver+';SERVER=tcp:'+server+';PORT=1433;DATABASE=
     totalCount = cursor.fetchval()
     cursor.execute(f"SELECT idArtist, category, idFilm FROM tJob")
     while True:
-        importData = { "acted in": [], "directed": [], "produced": [], "composed": [] }
+        importData = { "acted_in": [], "directed": [], "produced": [], "composed": [] }
         rows = cursor.fetchmany(BATCH_SIZE)
         if not rows:
             break
 
         for row in rows:
             relTuple=(row[0], {}, row[2])
-            importData[row[1]].append(relTuple)
+            cat = row[1].replace(" ","_")
+            importData[cat].append(relTuple)
         try:
-            for cat in importData:
+            for cat in importData.keys():
                 # Utilisez la fonction create_relationships de py2neo pour créer les relations entre les noeuds Film et Name
                 # (les tuples nécessaires ont déjà été créés ci-dessus dans la boucle for précédente)
                 # https://py2neo.org/2021.1/bulk/index.html
                 # ATTENTION: remplacez les espaces par des _ pour nommer les types de relation
                 # A COMPLETER
+
                 if importData[cat]:
-                    create_relationships(graph.auto(), importData[cat] , rel_type=cat) # Remplacez None par votre code
+                    create_relationships(graph.auto(), importData[cat] , rel_type=cat.upper() ,  start_node_key=("Artist", "idArtist") , end_node_key=("Film", "idFilm")) # Remplacez None par votre code
             exportedCount += len(rows)
             print(f"{exportedCount}/{totalCount} relationships exported to Neo4j")
         except Exception as error:
